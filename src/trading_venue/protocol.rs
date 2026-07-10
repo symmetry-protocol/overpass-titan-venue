@@ -9,22 +9,18 @@ use std::fmt::Display;
 
 /// Identifies the protocol family or implementation style of a trading venue.
 ///
-/// Every AMM or custom pool that integrates with Titan must choose one of these
-/// variants (or add their own) so the router and UI can correctly identify and
-/// categorize the venue.
-///
-/// `YourPoolProtocol` is provided as a template for new integrators.
+/// Every AMM or custom pool that integrates with Titan adds a variant here so
+/// the router and UI can correctly identify and categorize the venue.
 ///
 /// Protocols included here:
-/// - `YourPoolProtocol`: Example/custom protocol placeholder.
-/// - `RaydiumAMM`: Raydium’s constant-product AMM on Solana.
+/// - `Overpass`: Overpass wrapper vaults over upstream lending/yield protocols.
+/// - `RaydiumAMM`: Raydium's constant-product AMM on Solana.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PoolProtocol {
-    /// Example/custom protocol — integrators should rename or replace this
-    /// with their own protocol name.
-    YourPoolProtocol,
+    /// Overpass wrapper vaults (klend / kvault / save / marginfi / lulo).
+    Overpass,
 
-    /// Raydium’s AMM (x*y=k) pools on Solana.
+    /// Raydium's AMM (x*y=k) pools on Solana.
     RaydiumAMM,
 }
 
@@ -44,7 +40,7 @@ impl From<PoolProtocol> for String {
     /// exposes protocol metadata via API.
     fn from(protocol: PoolProtocol) -> Self {
         match protocol {
-            PoolProtocol::YourPoolProtocol => "YourPoolProtocol".to_string(),
+            PoolProtocol::Overpass => "Overpass".to_string(),
             PoolProtocol::RaydiumAMM => "RaydiumAMM".to_string(),
         }
     }

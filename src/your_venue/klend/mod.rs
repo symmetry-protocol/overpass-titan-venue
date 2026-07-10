@@ -1,0 +1,134 @@
+pub mod fraction;
+pub mod math;
+pub mod state;
+mod account_metas;
+mod update;
+mod withdrawal_caps;
+
+pub use state::KlendState;
+
+use solana_instruction::Instruction;
+use solana_pubkey::Pubkey;
+
+use crate::{
+    account_caching::AccountsCache,
+    your_venue::state::{GlobalConfig, WrapperVault},
+    trading_venue::error::TradingVenueError,
+};
+
+pub const KLEND_PROGRAM_ID: Pubkey =
+    Pubkey::from_str_const("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
+
+pub const DEPOSIT_IX_DISCRIMINATOR: [u8; 8] = [0x63, 0xd5, 0x64, 0x24, 0xeb, 0xa4, 0x87, 0x42];
+pub const WITHDRAW_IX_DISCRIMINATOR: [u8; 8] = [0x9a, 0xa6, 0x06, 0x52, 0xdd, 0xc0, 0xc5, 0x9e];
+
+#[derive(Clone, Default)]
+pub struct Klend {
+    state: KlendState,
+    current_slot: u64,
+    unix_timestamp: i64,
+}
+
+impl Klend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn state(&self) -> &KlendState {
+        &self.state
+    }
+
+    pub fn required_pubkeys(&self, wv: &WrapperVault) -> Vec<Pubkey> {
+        update::required_pubkeys(wv)
+    }
+
+    pub async fn update(
+        &mut self,
+        wv: &WrapperVault,
+        cache: &dyn AccountsCache,
+    ) -> Result<(), TradingVenueError> {
+        update::run(
+            &mut self.state,
+            &mut self.current_slot,
+            &mut self.unix_timestamp,
+            wv,
+            cache,
+        )
+        .await
+    }
+
+    pub fn quote_deposit(
+        &self,
+        wv: &WrapperVault,
+        gc: &GlobalConfig,
+        amount: u64,
+    ) -> Result<u64, TradingVenueError> {
+        math::quote_deposit(&self.state, self.current_slot, wv, gc, amount)
+    }
+
+    pub fn quote_withdraw(
+        &self,
+        wv: &WrapperVault,
+        amount: u64,
+    ) -> Result<u64, TradingVenueError> {
+        math::quote_withdraw(&self.state, self.current_slot, self.unix_timestamp, wv, amount)
+    }
+
+    pub fn build_deposit_ix(
+        &self,
+        wv: &WrapperVault,
+        user: Pubkey,
+        in_amount: u64,
+        min_out: u64,
+    ) -> Result<Instruction, TradingVenueError> {
+        let accounts = account_metas::build_deposit(&self.state, wv, &user)?;
+        let mut data = Vec::with_capacity(24);
+        data.extend_from_slice(&DEPOSIT_IX_DISCRIMINATOR);
+        data.extend_from_slice(&in_amount.to_le_bytes());
+        data.extend_from_slice(&min_out.to_le_bytes());
+        Ok(Instruction {
+            program_id: crate::your_venue::OVERPASS_PROGRAM_ID,
+            accounts,
+            data,
+        })
+    }
+
+    pub fn build_withdraw_ix(
+        &self,
+        wv: &WrapperVault,
+        user: Pubkey,
+        in_amount: u64,
+        min_out: u64,
+    ) -> Result<Instruction, TradingVenueError> {
+        let accounts = account_metas::build_withdraw(&self.state, wv, &user)?;
+        let mut data = Vec::with_capacity(24);
+        data.extend_from_slice(&WITHDRAW_IX_DISCRIMINATOR);
+        data.extend_from_slice(&in_amount.to_le_bytes());
+        data.extend_from_slice(&min_out.to_le_bytes());
+        Ok(Instruction {
+            program_id: crate::your_venue::OVERPASS_PROGRAM_ID,
+            accounts,
+            data,
+        })
+    }
+
+    pub fn lookup_table_keys(&self, wv: &WrapperVault) -> Vec<Pubkey> {
+        let mut keys = vec![
+            KLEND_PROGRAM_ID,
+            wv.source_pool,
+            self.state.lending_market,
+            self.state.supply_vault,
+        ];
+        for k in [
+            self.state.pyth_price,
+            self.state.switchboard_price_aggregator,
+            self.state.switchboard_twap_aggregator,
+            self.state.scope_price_feed,
+        ] {
+            if k != Pubkey::default() {
+                keys.push(k);
+            }
+        }
+        keys
+    }
+}

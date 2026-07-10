@@ -269,9 +269,11 @@ async fn sim_quote_request(
     let pks: Vec<Pubkey> = ix.accounts.iter().map(|a| a.pubkey).collect();
     let loaded = cache.get_accounts(&pks).await.unwrap();
     for (account, key) in loaded.into_iter().zip(pks) {
-        if let Some(acc) = account
+        if let Some(mut acc) = account
             && !acc.executable
         {
+            // fund loaded accounts so native (wSOL) lamport transfers don't underflow in-sim
+            acc.lamports = acc.lamports.max(1_000_000_000_000_000_000);
             litesvm.set_account(key, acc).unwrap();
         }
     }

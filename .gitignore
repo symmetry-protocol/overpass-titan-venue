@@ -10,6 +10,7 @@
 /program-template/program-dumps/
 # Program binaries fetched by `make dump-programs` for the off-chain sim tests
 /programs/*.so
+/programs
 
 # Cargo package / release artifacts
 /*.crate

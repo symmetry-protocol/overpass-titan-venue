@@ -49,15 +49,7 @@ pub const ROUTE_WEIGHT_ALL: u32 = 1_000_000_000;
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Venue {
     RaydiumAmm,
-    // FILL_IN: add your venue variant here, in the SAME position as in
-    // `state.rs`. Include any CPI parameters the router must pass to your venue
-    // adapter, such as direction flags.
-    TemplateVenue { zero_for_one: bool },
-}
-
-#[allow(dead_code)]
-fn fill_in_route_venue_variant() -> ! {
-    todo!("add your route Venue variant in the same position as the program enum")
+    Overpass { discriminator: [u8; 8] },
 }
 
 impl Venue {
@@ -96,10 +88,18 @@ pub fn protocol_to_venue(
 ) -> Result<Venue, TradingVenueError> {
     match venue.protocol() {
         PoolProtocol::RaydiumAMM => Ok(Venue::RaydiumAmm),
-        // FILL_IN: map your PoolProtocol variant to your Venue variant.
-        PoolProtocol::YourPoolProtocol => {
-            let _ = (venue, request);
-            todo!("map YourPoolProtocol to your Venue variant")
+        PoolProtocol::Overpass => {
+            let ix = venue.generate_swap_instruction(request.clone(), Pubkey::default())?;
+            let discriminator: [u8; 8] = ix
+                .data
+                .get(..8)
+                .and_then(|d| d.try_into().ok())
+                .ok_or_else(|| {
+                    TradingVenueError::UnsupportedVenue(
+                        "overpass ix missing discriminator".into(),
+                    )
+                })?;
+            Ok(Venue::Overpass { discriminator })
         }
     }
 }
@@ -342,15 +342,15 @@ mod tests {
     fn venue_borsh_bytes_are_stable() {
         assert_eq!(Venue::RaydiumAmm.to_borsh_bytes(), vec![0]);
         assert_eq!(
-            Venue::TemplateVenue {
-                zero_for_one: false,
-            }
-            .to_borsh_bytes(),
-            vec![1, 0]
+            Venue::Overpass { discriminator: [0; 8] }.to_borsh_bytes(),
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0]
         );
         assert_eq!(
-            Venue::TemplateVenue { zero_for_one: true }.to_borsh_bytes(),
-            vec![1, 1]
+            Venue::Overpass {
+                discriminator: [1, 2, 3, 4, 5, 6, 7, 8],
+            }
+            .to_borsh_bytes(),
+            vec![1, 1, 2, 3, 4, 5, 6, 7, 8]
         );
     }
 }

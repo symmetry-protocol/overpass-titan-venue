@@ -361,8 +361,11 @@ async fn load_route_accounts(
         {
             continue;
         }
-        if let Some(account) = account {
+        if let Some(mut account) = account {
             if !account.executable {
+                // native mints (wSOL) move real lamports on transfer; fund loaded
+                // accounts so large in-sim native transfers don't underflow
+                account.lamports = account.lamports.max(1_000_000_000_000_000_000);
                 litesvm.set_account(pubkey, account).unwrap();
             }
         }
