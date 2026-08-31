@@ -1,7 +1,7 @@
 use fixed::types::I80F48;
 use solana_pubkey::Pubkey;
 
-use crate::your_venue::common::bytes::{read_pubkey, read_u32, read_u64};
+use crate::your_venue::common::bytes::{read_pubkey, read_u32, read_u64, read_u128};
 use crate::your_venue::common::programs::SPL_TOKEN_PROGRAM_ID;
 use crate::trading_venue::error::TradingVenueError;
 
@@ -241,10 +241,9 @@ pub fn decode(data: &[u8]) -> Result<MarginfiState, TradingVenueError> {
 }
 
 pub fn read_wrapped_i80f48(data: &[u8], offset: usize) -> Result<I80F48, TradingVenueError> {
-    let raw: [u8; 16] = data[offset..offset + 16]
-        .try_into()
-        .map_err(|_| TradingVenueError::DeserializationError("WrappedI80F48".into()))?;
-    Ok(I80F48::from_bits(i128::from_le_bytes(raw)))
+    Ok(I80F48::from_bits(
+        read_u128(data, offset, "WrappedI80F48")? as i128,
+    ))
 }
 
 fn read_rate_points(data: &[u8], offset: usize) -> Result<[RatePoint; 5], TradingVenueError> {
