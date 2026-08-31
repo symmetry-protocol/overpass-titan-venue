@@ -52,7 +52,7 @@ pub async fn run(
         .map_err(|_| TradingVenueError::DeserializationError("clock.unix_timestamp".into()))?;
     *unix_timestamp = i64::from_le_bytes(ts_bytes);
 
-    math::pre_accrue(s, *current_slot);
+    math::pre_accrue(s, *current_slot, *unix_timestamp)?;
 
     Ok(())
 }

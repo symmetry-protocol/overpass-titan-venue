@@ -21,6 +21,7 @@ const FARMS_PROGRAM_ID: Pubkey =
 const FARMS_USER_ACTIVE_STAKE_SCALED_OFFSET: usize = 408;
 const FARMS_USER_STATE_LEN: usize = 920;
 const SPL_TOKEN_AMOUNT_OFFSET: usize = 64;
+const MAX_QUOTE_DEPOSIT: u64 = u64::MAX / 32;
 
 pub fn required_pubkeys(state: &KvaultState, wv: &WrapperVault) -> Vec<Pubkey> {
     let (kvault_global_config, _) =
@@ -107,7 +108,7 @@ pub async fn run(
     }
     new_state.cached_reserves = cached_reserves;
     for (_, reserve) in new_state.cached_reserves.iter_mut() {
-        klend::math::pre_accrue(reserve, *current_slot);
+        klend::math::pre_accrue(reserve, *current_slot, *unix_timestamp)?;
     }
 
     if wv.protocol_data[48] != 0 {
@@ -173,30 +174,18 @@ pub async fn run(
         SPL_TOKEN_PROGRAM_ID
     };
 
-    new_state.cached_aum_sf = math::compute_current_aum(&new_state, *current_slot, *unix_timestamp)
-        .ok()
-        .map(|f| f.to_bits());
+    let aum = math::compute_current_aum(&new_state, *current_slot, *unix_timestamp).ok();
+    new_state.cached_aum_sf = aum.map(|f| f.to_bits());
 
-    let mut min_headroom: u128 = u128::MAX;
-    for alloc in &new_state.active_allocations {
-        if alloc.target_allocation_weight == 0 {
-            continue;
-        }
-        if let Some((_, reserve)) = new_state
-            .cached_reserves
-            .iter()
-            .find(|(k, _)| *k == alloc.reserve)
-        {
-            let accrued = klend::math::accrue_interest(reserve, *current_slot);
-            let total_supply = klend::math::total_supply_fraction(reserve, &accrued);
-            let supply_floor: u128 = total_supply.floor().to_num::<u128>();
-            let headroom = (reserve.deposit_limit as u128).saturating_sub(supply_floor);
-            if headroom < min_headroom {
-                min_headroom = headroom;
-            }
-        }
-    }
-    new_state.cached_max_deposit = min_headroom.min(u64::MAX as u128) as u64;
+    let protocol_cap: u64 = if new_state.deposit_cap == 0 {
+        u64::MAX
+    } else {
+        let aum_ceil: u64 = aum
+            .map(|f| f.ceil().to_num::<u128>().min(u64::MAX as u128) as u64)
+            .unwrap_or(u64::MAX);
+        new_state.deposit_cap.saturating_sub(aum_ceil)
+    };
+    new_state.cached_max_deposit = protocol_cap.min(MAX_QUOTE_DEPOSIT);
 
     *state = new_state;
     Ok(())

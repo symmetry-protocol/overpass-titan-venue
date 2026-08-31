@@ -175,7 +175,7 @@ pub fn quote_withdraw(
             .ok_or(TradingVenueError::MathError(
                 "primary reserve not cached".into(),
             ))?;
-        let accrued = klend::math::accrue_interest(reserve, current_slot);
+        let accrued = klend::math::accrue_interest(reserve, current_slot, unix_timestamp)?;
         let total_supply = klend::math::total_supply_fraction(reserve, &accrued);
         let (cs, ts) = klend::math::exchange_rate_pair(
             reserve.collateral_mint_total_supply,
@@ -250,7 +250,7 @@ pub fn compute_current_aum(
     current_slot: u64,
     unix_timestamp: i64,
 ) -> Result<Fraction, TradingVenueError> {
-    let invested_total = invested_total(state, current_slot)?;
+    let invested_total = invested_total(state, current_slot, unix_timestamp)?;
     let available = Fraction::from_num(state.token_available);
     let holdings_total = available + invested_total;
     let pending_fees_after_charge =
@@ -262,10 +262,14 @@ pub fn compute_current_aum(
     Ok(holdings_total - pending_fees_after_charge)
 }
 
-fn invested_total(state: &KvaultState, current_slot: u64) -> Result<Fraction, TradingVenueError> {
+fn invested_total(
+    state: &KvaultState,
+    current_slot: u64,
+    unix_timestamp: i64,
+) -> Result<Fraction, TradingVenueError> {
     let mut total = Fraction::ZERO;
     for alloc in &state.active_allocations {
-        total += invested_for_allocation(state, current_slot, alloc)?;
+        total += invested_for_allocation(state, current_slot, unix_timestamp, alloc)?;
     }
     Ok(total)
 }
@@ -273,6 +277,7 @@ fn invested_total(state: &KvaultState, current_slot: u64) -> Result<Fraction, Tr
 fn invested_for_allocation(
     state: &KvaultState,
     current_slot: u64,
+    unix_timestamp: i64,
     alloc: &ActiveAllocation,
 ) -> Result<Fraction, TradingVenueError> {
     let reserve = state
@@ -282,7 +287,7 @@ fn invested_for_allocation(
         .map(|(_, r)| r)
         .ok_or(TradingVenueError::MathError("reserve not cached".into()))?;
 
-    let accrued = klend::math::accrue_interest(reserve, current_slot);
+    let accrued = klend::math::accrue_interest(reserve, current_slot, unix_timestamp)?;
     let total_supply = klend::math::total_supply_fraction(reserve, &accrued);
     let (cs, ts) = klend::math::exchange_rate_pair(reserve.collateral_mint_total_supply, total_supply);
     klend::math::fraction_collateral_to_liquidity(alloc.ctoken_allocation, cs, ts)

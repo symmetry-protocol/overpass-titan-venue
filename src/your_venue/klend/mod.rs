@@ -63,7 +63,7 @@ impl Klend {
         gc: &GlobalConfig,
         amount: u64,
     ) -> Result<u64, TradingVenueError> {
-        math::quote_deposit(&self.state, self.current_slot, wv, gc, amount)
+        math::quote_deposit(&self.state, self.current_slot, self.unix_timestamp, wv, gc, amount)
     }
 
     pub fn quote_withdraw(
