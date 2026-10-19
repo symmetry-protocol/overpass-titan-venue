@@ -4,6 +4,7 @@ use solana_pubkey::Pubkey;
 use super::SAVE_PROGRAM_ID;
 use super::state::SaveState;
 use crate::your_venue::OVERPASS_PROGRAM_ID;
+use crate::your_venue::common::bytes::read_pubkey;
 use crate::your_venue::common::programs::{
     ATA_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, derive_ata,
 };
@@ -80,4 +81,19 @@ pub fn build_withdraw(
     user: &Pubkey,
 ) -> Result<Vec<AccountMeta>, TradingVenueError> {
     build_base(state, wv, user)
+}
+
+const PD_OFF_COLLATERAL_MINT: usize = 32;
+
+pub fn position_account(wv: &WrapperVault) -> Result<Pubkey, TradingVenueError> {
+    let (vault_authority, _) = Pubkey::find_program_address(
+        &[b"authority", wv.wrapper_mint.as_ref()],
+        &OVERPASS_PROGRAM_ID,
+    );
+    let collateral_mint = read_pubkey(
+        &wv.protocol_data,
+        PD_OFF_COLLATERAL_MINT,
+        "save.protocol_data.collateral_mint",
+    )?;
+    Ok(derive_ata(&vault_authority, &collateral_mint, &SPL_TOKEN_PROGRAM_ID))
 }

@@ -341,6 +341,20 @@ mod simulations_sweep {
         Ok(post_b.amount)
     }
 
+    thread_local! {
+        static SWEEP_RNG: std::cell::RefCell<rand::rngs::StdRng> =
+            std::cell::RefCell::new(<rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(
+                sweep_seed(),
+            ));
+    }
+
+    fn sweep_seed() -> u64 {
+        env::var("SWEEP_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20_261_018)
+    }
+
     /// Returns a log-uniformly sampled u64 in `[lo, hi]`.
     fn sample_log_uniform_u64(lo: u64, hi: u64) -> u64 {
         assert!(lo >= 1, "log-uniform sampling requires lo >= 1");
@@ -352,7 +366,7 @@ mod simulations_sweep {
         let log_lo = lo_f.ln();
         let log_hi = hi_f.ln();
 
-        let r: f64 = rand::rng().random();
+        let r: f64 = SWEEP_RNG.with(|rng| rng.borrow_mut().random());
         let log_val = log_lo + r * (log_hi - log_lo);
 
         (log_val.exp() as u64).clamp(lo, hi)
@@ -503,6 +517,7 @@ mod simulations_sweep {
             matched, total_bounds, sim_errors, max_drift, bounds_errors
         );
 
+        assert!(total_bounds > 0, "bound_simulation: no bounds were checked");
         assert_eq!(
             matched, total_bounds,
             "bound_simulation: matched {}/{} (sim_errors={}, max_drift={}, bounds_errors={})",
@@ -628,9 +643,11 @@ mod simulations_sweep {
         }
 
         log::info!(
-            "RANDOM_SUMMARY: matched={}/{} sim_errors={} quote_errors={} max_drift={} bounds_errors={}",
-            matched, total, sim_errors, quote_errors, max_drift, bounds_errors
+            "RANDOM_SUMMARY: matched={}/{} sim_errors={} quote_errors={} max_drift={} bounds_errors={} seed={}",
+            matched, total, sim_errors, quote_errors, max_drift, bounds_errors, sweep_seed()
         );
+
+        assert!(total > 0, "random_samples: no samples were checked");
 
         assert_eq!(
             matched, total,
@@ -764,6 +781,7 @@ mod simulations_sweep {
             monotone_ok, total, violations, quote_errors, bounds_errors
         );
 
+        assert!(total > 0, "monotone: no samples were checked");
         assert_eq!(
             violations, 0,
             "monotone: {} violations of {} (quote_errors={}, bounds_errors={})",

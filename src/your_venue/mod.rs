@@ -140,6 +140,33 @@ impl Source {
         }
     }
 
+    pub fn position_accounts(&self, wv: &WrapperVault) -> Result<Vec<Pubkey>, TradingVenueError> {
+        match self {
+            Source::Klend(_) => Ok(vec![klend::position_account(wv)?]),
+            Source::Save(_) => Ok(vec![save::position_account(wv)?]),
+            Source::Lulo(_) => Ok(vec![lulo::position_account(wv)?]),
+            Source::Kvault(_) => kvault::position_accounts(wv),
+            Source::Marginfi(_) => Ok(Vec::new()),
+        }
+    }
+
+    pub async fn live_intermediate(
+        &self,
+        wv: &WrapperVault,
+        cache: &dyn AccountsCache,
+    ) -> Result<Option<u128>, TradingVenueError> {
+        let position_account = match self {
+            Source::Kvault(s) => return Ok(Some(s.position_kvault_shares())),
+            Source::Marginfi(_) => return Ok(None),
+            Source::Klend(_) => klend::position_account(wv)?,
+            Source::Save(_) => save::position_account(wv)?,
+            Source::Lulo(_) => lulo::position_account(wv)?,
+        };
+        let amount =
+            common::programs::read_token_amount_or_zero(cache, &position_account).await?;
+        Ok(Some(amount as u128))
+    }
+
     pub fn build_deposit_ix(
         &self,
         wv: &WrapperVault,
@@ -336,6 +363,7 @@ impl TradingVenue for OverpassVenue {
             wv.wrapper_mint,
         ];
         keys.extend(source.required_pubkeys(wv));
+        keys.extend(source.position_accounts(wv)?);
         Ok(keys)
     }
 
@@ -347,7 +375,7 @@ impl TradingVenue for OverpassVenue {
             .get_account(&wv_pda)
             .await?
             .ok_or(TradingVenueError::NoAccountFound(wv_pda.into()))?;
-        let wv = state::decode_wrapper_vault(&wv_acct.data)?;
+        let mut wv = state::decode_wrapper_vault(&wv_acct.data)?;
 
         let accounts = cache
             .get_accounts(&[gc_pda, wv.underlying_mint, wv.wrapper_mint])
@@ -385,6 +413,9 @@ impl TradingVenue for OverpassVenue {
             .as_mut()
             .ok_or(TradingVenueError::NotInitialized("source".into()))?;
         source.update(&wv, cache).await?;
+        if let Some(live) = source.live_intermediate(&wv, cache).await? {
+            wv.intermediate_held = live;
+        }
 
         self.wrapper_vault = Some(wv);
         self.global_config = Some(gc);

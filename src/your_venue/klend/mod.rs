@@ -5,6 +5,7 @@ mod account_metas;
 mod update;
 mod withdrawal_caps;
 
+pub use account_metas::position_account;
 pub use state::KlendState;
 
 use solana_instruction::Instruction;

@@ -1,6 +1,6 @@
 use super::state::LuloState;
 use crate::your_venue::common::checked::{
-    mul_bps, require_no_value_per_share_loss, u128_to_u64,
+    mul_bps, require_no_value_per_share_loss, u128_to_u64, MIN_DEPOSIT_SHARES_OUT,
 };
 use crate::your_venue::common::u256::U256;
 use crate::your_venue::state::{GlobalConfig, WrapperVault};
@@ -191,6 +191,9 @@ pub fn quote_deposit(
     };
     if wrapper_to_mint == 0 {
         return Err(TradingVenueError::MathError("mint zero".into()));
+    }
+    if wv.wrapper_supply != 0 && wrapper_to_mint < MIN_DEPOSIT_SHARES_OUT {
+        return Err(TradingVenueError::MathError("deposit shares below floor".into()));
     }
 
     let new_wrapper_supply = wv

@@ -4,6 +4,7 @@ mod state;
 mod update;
 mod wad;
 
+pub use account_metas::position_account;
 pub use state::SaveState;
 
 use solana_instruction::Instruction;

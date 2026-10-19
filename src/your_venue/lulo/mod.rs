@@ -3,6 +3,7 @@ mod math;
 mod state;
 mod update;
 
+pub use account_metas::position_account;
 pub use state::LuloState;
 
 use solana_instruction::Instruction;

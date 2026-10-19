@@ -213,3 +213,24 @@ pub fn build_withdraw(
 ) -> Result<Vec<AccountMeta>, TradingVenueError> {
     build(state, wv, user, Direction::Withdraw)
 }
+
+pub fn position_accounts(wv: &WrapperVault) -> Result<Vec<Pubkey>, TradingVenueError> {
+    let (vault_authority, _) = Pubkey::find_program_address(
+        &[b"authority", wv.wrapper_mint.as_ref()],
+        &OVERPASS_PROGRAM_ID,
+    );
+    let share_mint = read_pubkey(
+        &wv.protocol_data,
+        PD_OFF_SHARE_MINT,
+        "kvault.protocol_data.share_mint",
+    )?;
+    let mut accts = vec![derive_ata(&vault_authority, &share_mint, &SPL_TOKEN_PROGRAM_ID)];
+    if wv.protocol_data[PD_OFF_USE_FARMS] != 0 {
+        let (farms_user_state, _) = Pubkey::find_program_address(
+            &[FARMS_SEED_USER, wv.source_position_pda.as_ref(), vault_authority.as_ref()],
+            &FARMS_PROGRAM_ID,
+        );
+        accts.push(farms_user_state);
+    }
+    Ok(accts)
+}

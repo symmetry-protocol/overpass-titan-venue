@@ -4,11 +4,11 @@ use solana_pubkey::Pubkey;
 use super::KVAULT_PROGRAM_ID;
 use super::state::{self, KvaultState, GLOBAL_CONFIG_SEED, PD_OFF_UNDERLYING_TOKEN_KIND};
 use crate::account_caching::AccountsCache;
-use crate::your_venue::OVERPASS_PROGRAM_ID;
-use crate::your_venue::common::bytes::{read_pubkey, read_u64, read_u128};
+use crate::your_venue::common::bytes::{read_u64, read_u128};
 use crate::your_venue::common::programs::{
-    derive_ata, SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
 };
+use super::account_metas;
 use super::math;
 use crate::your_venue::klend;
 use crate::your_venue::state::WrapperVault;
@@ -119,27 +119,16 @@ pub async fn run(
         }
     }
 
+    let position_keys = account_metas::position_accounts(wv)?;
+    let position_accts = cache.get_accounts(&position_keys).await?;
+    let mut it = position_accts.into_iter();
+    let idle = match it.next().flatten() {
+        Some(a) if !a.data.is_empty() => {
+            read_u64(&a.data, SPL_TOKEN_AMOUNT_OFFSET, "shares_ata.amount")?
+        }
+        _ => 0,
+    };
     new_state.position_kvault_shares = if wv.protocol_data[48] != 0 {
-        let (vault_authority, _) = Pubkey::find_program_address(
-            &[b"authority", wv.wrapper_mint.as_ref()],
-            &OVERPASS_PROGRAM_ID,
-        );
-        let kvault_share_mint =
-            read_pubkey(&wv.protocol_data, 0, "kvault.pd.share_mint")?;
-        let vault_shares_ata =
-            derive_ata(&vault_authority, &kvault_share_mint, &SPL_TOKEN_PROGRAM_ID);
-        let (farms_user_state, _) = Pubkey::find_program_address(
-            &[b"user", wv.source_position_pda.as_ref(), vault_authority.as_ref()],
-            &FARMS_PROGRAM_ID,
-        );
-        let accts = cache
-            .get_accounts(&[vault_shares_ata, farms_user_state])
-            .await?;
-        let mut it = accts.into_iter();
-        let idle = match it.next().flatten() {
-            Some(a) => read_u64(&a.data, SPL_TOKEN_AMOUNT_OFFSET, "shares_ata.amount")?,
-            None => 0,
-        };
         let user_stake_scaled = match it.next().flatten() {
             Some(a)
                 if a.owner == FARMS_PROGRAM_ID
@@ -165,7 +154,7 @@ pub async fn run(
             .checked_add(farm_kt as u128)
             .ok_or(TradingVenueError::MathError("position sum".into()))?
     } else {
-        wv.intermediate_held
+        idle as u128
     };
 
     new_state.underlying_token_program = if wv.protocol_data[PD_OFF_UNDERLYING_TOKEN_KIND] == 1 {

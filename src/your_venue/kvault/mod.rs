@@ -3,7 +3,7 @@ mod math;
 mod state;
 mod update;
 
-pub use account_metas::FARMS_PROGRAM_ID;
+pub use account_metas::{FARMS_PROGRAM_ID, position_accounts};
 pub use state::KvaultState;
 
 use solana_instruction::Instruction;
@@ -35,6 +35,10 @@ impl Kvault {
 
     pub fn required_pubkeys(&self, wv: &WrapperVault) -> Vec<Pubkey> {
         update::required_pubkeys(&self.state, wv)
+    }
+
+    pub fn position_kvault_shares(&self) -> u128 {
+        self.state.position_kvault_shares
     }
 
     pub async fn update(

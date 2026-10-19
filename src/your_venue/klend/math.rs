@@ -4,7 +4,7 @@ use super::fraction::{
 use super::state::{BORROW_RATE_CURVE_LEN, KlendState};
 use super::withdrawal_caps;
 use crate::your_venue::common::checked::{
-    FULL_BPS, mul_bps, require_no_value_per_share_loss, u128_to_u64,
+    FULL_BPS, MIN_DEPOSIT_SHARES_OUT, mul_bps, require_no_value_per_share_loss, u128_to_u64,
 };
 use crate::your_venue::common::u256::U256;
 use crate::your_venue::state::{GlobalConfig, WrapperVault};
@@ -415,18 +415,29 @@ pub fn quote_deposit(
     let wrapper_supply = wv.wrapper_supply;
     let prev_intermediate = wv.intermediate_held;
     let wrapper_to_mint = if wrapper_supply == 0 {
+        let donated = if prev_intermediate == 0 {
+            0
+        } else {
+            collateral_to_liquidity(u128_to_u64(prev_intermediate)?, cs, ts)?
+        };
         net_amount
+            .checked_add(donated)
+            .ok_or(TradingVenueError::MathError("absorb".into()))?
     } else {
         if prev_intermediate == 0 {
             return Err(TradingVenueError::MathError("klend ctokens out of sync".into()));
         }
-        u128_to_u64(
+        let shares = u128_to_u64(
             (collateral_amount as u128)
                 .checked_mul(wrapper_supply as u128)
                 .ok_or(TradingVenueError::MathError("wrap mul".into()))?
                 .checked_div(prev_intermediate)
                 .ok_or(TradingVenueError::MathError("wrap div".into()))?,
-        )?
+        )?;
+        if shares < MIN_DEPOSIT_SHARES_OUT {
+            return Err(TradingVenueError::MathError("deposit shares below floor".into()));
+        }
+        shares
     };
     if wrapper_to_mint == 0 {
         return Err(TradingVenueError::MathError("mint zero".into()));

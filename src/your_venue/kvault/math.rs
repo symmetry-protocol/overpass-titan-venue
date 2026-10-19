@@ -1,6 +1,6 @@
 use super::state::{ActiveAllocation, KvaultState};
 use crate::your_venue::common::checked::{
-    FULL_BPS, mul_bps, require_no_value_per_share_loss, u128_to_u64,
+    FULL_BPS, MIN_DEPOSIT_SHARES_OUT, mul_bps, require_no_value_per_share_loss, u128_to_u64,
 };
 use crate::your_venue::common::u256::U256;
 use crate::your_venue::klend;
@@ -45,31 +45,46 @@ pub fn quote_deposit(
     let max_user_tokens = net_amount
         .checked_sub(crank_funds)
         .ok_or(TradingVenueError::MathError("max_user_tokens".into()))?;
-    if max_user_tokens < state.min_deposit_amount {
-        return Err(TradingVenueError::MathError("below min deposit".into()));
-    }
     if max_user_tokens > state.cached_max_deposit {
         return Err(TradingVenueError::MathError("deposit exceeds reserve capacity".into()));
     }
 
     let aum = current_aum(state, current_slot, unix_timestamp)?;
     let kvault_shares_to_mint = get_shares_to_mint(aum, max_user_tokens, state.shares_issued)?;
+    if amount_to_deposit_from_shares(aum, kvault_shares_to_mint, state.shares_issued)?
+        < state.min_deposit_amount
+    {
+        return Err(TradingVenueError::MathError("below min deposit".into()));
+    }
     if kvault_shares_to_mint == 0 {
         return Err(TradingVenueError::MathError("shares to mint zero".into()));
     }
 
     let wrapper_to_mint = if wv.wrapper_supply == 0 {
+        let donated = u128_to_u64(
+            state
+                .position_kvault_shares
+                .checked_mul(net_amount as u128)
+                .and_then(|x| x.checked_div(kvault_shares_to_mint as u128))
+                .ok_or(TradingVenueError::MathError("absorb".into()))?,
+        )?;
         net_amount
+            .checked_add(donated)
+            .ok_or(TradingVenueError::MathError("absorb".into()))?
     } else {
         if state.position_kvault_shares == 0 {
             return Err(TradingVenueError::MathError("intermediate=0".into()));
         }
-        u128_to_u64(
+        let shares = u128_to_u64(
             (kvault_shares_to_mint as u128)
                 .checked_mul(wv.wrapper_supply as u128)
                 .and_then(|x| x.checked_div(state.position_kvault_shares))
                 .ok_or(TradingVenueError::MathError("wrap calc".into()))?,
-        )?
+        )?;
+        if shares < MIN_DEPOSIT_SHARES_OUT {
+            return Err(TradingVenueError::MathError("deposit shares below floor".into()));
+        }
+        shares
     };
     if wrapper_to_mint == 0 {
         return Err(TradingVenueError::MathError("mint zero".into()));
@@ -183,7 +198,11 @@ pub fn quote_withdraw(
         );
         let in_reserve_liq_f =
             klend::math::fraction_collateral_to_liquidity(primary.ctoken_allocation, cs, ts)?;
-        let send_f = in_reserve_liq_f.min(Fraction::from_num(to_disinvest));
+        let need_f = Fraction::from_num(to_disinvest);
+        if in_reserve_liq_f < need_f {
+            return Err(TradingVenueError::MathError("partial withdraw fill".into()));
+        }
+        let send_f = in_reserve_liq_f.min(need_f);
         if send_f == Fraction::ZERO {
             available_to_send
         } else {
@@ -362,6 +381,27 @@ fn get_shares_to_mint(
         aum_ceil_u64,
     )?;
     u128_to_u64(shares.floor().to_num::<u128>())
+}
+
+fn amount_to_deposit_from_shares(
+    aum: Fraction,
+    shares: u64,
+    shares_issued: u64,
+) -> Result<u64, TradingVenueError> {
+    if shares_issued == 0 {
+        return Ok(shares);
+    }
+    let lhs = U256::from(aum.to_bits())
+        .checked_mul(U256::from(shares))
+        .and_then(|x| x.checked_add(U256::from(shares_issued - 1)))
+        .ok_or(TradingVenueError::MathError("deposit amount".into()))?;
+    let bits: u128 = (lhs / U256::from(shares_issued))
+        .try_into()
+        .map_err(|_| TradingVenueError::MathError("deposit amount".into()))?;
+    let ceil = Fraction::from_bits(bits)
+        .checked_ceil()
+        .ok_or(TradingVenueError::MathError("deposit amount".into()))?;
+    u128_to_u64(ceil.to_num::<u128>())
 }
 
 fn fraction_full_mul_int_ratio(
